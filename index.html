@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RISC-V Simulator (C++ WASM Engine)</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="motor.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0d0f12; --bg2: #13161b; --bg3: #1a1e25; --bg4: #212630;
+  --border: #2a3040; --border2: #374050; --text: #e2e8f0; --text2: #94a3b8;
+  --text3: #64748b; --accent: #38bdf8; --accent2: #0ea5e9; --green: #4ade80;
+  --amber: #fbbf24; --red: #f87171; --purple: #a78bfa; --teal: #2dd4bf;
+  --mono: 'JetBrains Mono', monospace; --sans: 'Syne', sans-serif;
+}
+body { background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 13px; line-height: 1.5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+header { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 10px 20px; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+header h1 { font-family: var(--sans); font-size: 16px; font-weight: 800; letter-spacing: 0.05em; color: var(--accent); }
+header .subtitle { color: var(--text3); font-size: 11px; }
+.toolbar { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+.btn { background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 5px 12px; border-radius: 5px; cursor: pointer; font-family: var(--mono); font-size: 12px; transition: all 0.15s; display: flex; align-items: center; gap: 6px; }
+.btn:hover { background: var(--bg4); border-color: var(--border2); }
+.btn.accent { background: var(--accent2); border-color: var(--accent); color: #fff; }
+.btn.green { background: #166534; border-color: var(--green); color: var(--green); }
+.btn.red { background: #7f1d1d; border-color: var(--red); color: var(--red); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text3); }
+.status-dot.running { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.status-dot.halted { background: var(--red); }
+.status-dot.ready { background: var(--amber); }
+.main { display: grid; grid-template-columns: 220px 1fr 260px; grid-template-rows: 1fr auto; flex: 1; overflow: hidden; }
+.panel { border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+.panel-title { font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text3); padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); flex-shrink: 0; }
+.panel-content { overflow-y: auto; flex: 1; padding: 8px; }
+.panel-content::-webkit-scrollbar { width: 4px; }
+.panel-content::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.reg-grid { display: grid; grid-template-columns: 1fr; gap: 2px; }
+.reg-row { display: grid; grid-template-columns: 52px 60px 1fr; gap: 4px; align-items: center; padding: 3px 6px; border-radius: 4px; transition: background 0.1s; }
+.reg-row:hover { background: var(--bg3); }
+.reg-row.changed { background: rgba(56, 189, 248, 0.08); border-left: 2px solid var(--accent); }
+.reg-row.pc-row { background: rgba(167, 139, 250, 0.1); border-left: 2px solid var(--purple); }
+.reg-name { color: var(--text3); font-size: 11px; }
+.reg-alias { color: var(--text2); font-size: 11px; }
+.reg-val { color: var(--text); text-align: right; font-size: 12px; }
+.reg-val.nonzero { color: var(--accent); }
+.center-panel { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
+.tabs { display: flex; background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tab { padding: 8px 16px; font-size: 11px; font-family: var(--sans); font-weight: 600; letter-spacing: 0.05em; color: var(--text3); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; text-transform: uppercase; }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-content { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+.tab-content.active { display: flex; }
+.disasm-list { overflow-y: auto; flex: 1; padding: 4px 0; }
+.disasm-row { display: grid; grid-template-columns: 16px 90px 80px 1fr; gap: 8px; align-items: center; padding: 3px 12px; border-radius: 0; font-size: 12px; cursor: pointer; }
+.disasm-row:hover { background: var(--bg3); }
+.disasm-row.current { background: rgba(56, 189, 248, 0.12); border-left: 3px solid var(--accent); }
+.disasm-row.current .disasm-arrow { color: var(--accent); }
+.disasm-arrow { color: transparent; font-size: 11px; }
+.disasm-addr { color: var(--text3); }
+.disasm-hex { color: var(--text3); font-size: 11px; }
+.disasm-mnem { color: var(--purple); font-weight: 500; }
+.disasm-ops { color: var(--text); }
+.mem-controls { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); flex-shrink: 0; align-items: center; }
+.mem-input { background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-family: var(--mono); font-size: 12px; width: 100px; }
+.mem-grid { overflow: auto; flex: 1; padding: 8px 12px; }
+.mem-row { display: flex; gap: 8px; align-items: center; margin-bottom: 1px; font-size: 12px; padding: 1px 0; }
+.mem-addr { color: var(--text3); min-width: 72px; }
+.mem-bytes { display: flex; gap: 4px; flex-wrap: nowrap; }
+.mem-byte { color: var(--text); min-width: 20px; }
+.mem-byte.nonzero { color: var(--green); }
+.mem-ascii { color: var(--text3); margin-left: 8px; letter-spacing: 2px; }
+.right-panel { display: flex; flex-direction: column; overflow: hidden; }
+.console { flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 12px; line-height: 1.6; }
+.log-line { margin-bottom: 1px; }
+.log-info { color: var(--text2); }
+.log-ok { color: var(--green); }
+.log-warn { color: var(--amber); }
+.log-err { color: var(--red); }
+.console-input-row { display: flex; border-top: 1px solid var(--border); background: var(--bg2); flex-shrink: 0; }
+.console-prompt { padding: 8px 8px 8px 12px; color: var(--accent); font-weight: 700; }
+.console-input { flex: 1; background: transparent; border: none; color: var(--text); font-family: var(--mono); font-size: 12px; padding: 8px 4px; outline: none; }
+.statusbar { background: var(--bg2); border-top: 1px solid var(--border); padding: 4px 16px; display: flex; gap: 24px; align-items: center; font-size: 11px; color: var(--text3); grid-column: 1 / -1; }
+.statusbar .val { color: var(--text2); }
+.upload-zone { border: 2px dashed var(--border2); border-radius: 8px; padding: 40px 20px; text-align: center; cursor: pointer; margin: 20px; }
+.upload-zone:hover { border-color: var(--accent2); background: rgba(14, 165, 233, 0.05); }
+.speed-select { background: var(--bg3); border: 1px solid var(--border); color: var(--text2); padding: 4px 6px; border-radius: 4px; font-family: var(--mono); }
+@keyframes flash { 0% { background: rgba(56,189,248,0.3); } 100% { background: transparent; } }
+.flash { animation: flash 0.6s ease-out; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="status-dot" id="statusDot"></div>
+  <h1>RISC-V SIM</h1>
+  <span class="subtitle">WASM C++ Engine</span>
+  <div class="toolbar">
+    <label class="btn" style="cursor:pointer">
+      <span>📂 Load .bin</span>
+      <input type="file" id="fileInput" accept=".bin" style="display:none">
+    </label>
+    <button class="btn green" id="btnStep" disabled>⏭ Step</button>
+    <button class="btn accent" id="btnRun" disabled>▶ Run</button>
+    <button class="btn" id="btnPause" disabled>⏸ Pause</button>
+    <button class="btn red" id="btnReset" disabled>↺ Reset</button>
+    <select class="speed-select" id="speedSelect">
+      <option value="500">Slow</option>
+      <option value="100" selected>Normal</option>
+      <option value="10">Fast</option>
+    </select>
+  </div>
+</header>
+
+<div class="main">
+  <div class="panel">
+    <div class="panel-title">Registers</div>
+    <div class="panel-content"><div class="reg-grid" id="regGrid"></div></div>
+  </div>
+
+  <div class="center-panel">
+    <div class="tabs">
+      <div class="tab active" data-tab="disasm">Disassembly</div>
+      <div class="tab" data-tab="memory">Memory</div>
+    </div>
+    <div class="tab-content active" id="tab-disasm">
+      <div class="disasm-list" id="disasmList">
+        <div class="upload-zone"><h3>No program loaded</h3><p>Load a .bin file</p></div>
+      </div>
+    </div>
+    <div class="tab-content" id="tab-memory">
+      <div class="mem-controls">
+        <span>Go to:</span>
+        <input class="mem-input" id="memAddrInput" value="0x00000000">
+        <button class="btn" id="btnMemGo">Go</button>
+      </div>
+      <div class="mem-grid" id="memGrid"></div>
+    </div>
+  </div>
+
+  <div class="right-panel">
+    <div class="panel-title">Console</div>
+    <div class="console" id="consoleOut"></div>
+    <div class="console-input-row">
+      <span class="console-prompt">&gt;</span>
+      <input class="console-input" id="consoleIn" placeholder="step | run | mem 0x100 | pc | regs">
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <span>PC: <span class="val" id="sbPC">0x00000000</span></span>
+    <span>Cycle: <span class="val" id="sbCycle">0</span></span>
+    <span>Status: <span class="val" id="sbStatus">Loading WASM...</span></span>
+  </div>
+</div>
+
+<script>
+const REG_NAMES = ['x0','x1','x2','x3','x4','x5','x6','x7','x8','x9','x10','x11','x12','x13','x14','x15','x16','x17','x18','x19','x20','x21','x22','x23','x24','x25','x26','x27','x28','x29','x30','x31'];
+const REG_ALIAS = ['zero','ra','sp','gp','tp','t0','t1','t2','s0','s1','a0','a1','a2','a3','a4','a5','a6','a7','s2','s3','s4','s5','s6','s7','s8','s9','s10','s11','t3','t4','t5','t6'];
+
+// ==========================================
+// C++ WASM WRAPPER (Aquí JS llama a C++)
+// ==========================================
+class RV32WasmWrapper {
+  constructor() {
+    this.prevRegs = new Int32Array(32);
+    this.halted = false;
+  }
+  reset() { 
+    Module._sim_reset(); 
+    this.halted = false; 
+    this.prevRegs = new Int32Array(32); 
+  }
+  loadBin(bytes) {
+    const ptr = Module._malloc(bytes.length);
+    Module.HEAPU8.set(bytes, ptr);
+    Module._sim_load_bin(ptr, bytes.length);
+    Module._free(ptr);
+    this.halted = false;
+  }
+  step() {
+    this.prevRegs = this.regs;
+    const res = Module._sim_step();
+    if(res === 1) this.halted = true;
+  }
+  get pc() { return Module._sim_get_pc() >>> 0; }
+  get cycle() { return Module._sim_get_cycle() >>> 0; }
+  get regs() {
+    let r = new Int32Array(32);
+    for(let i=0; i<32; i++) r[i] = Module._sim_get_reg(i);
+    return r;
+  }
+  readByte(addr) { return Module._sim_read_mem(addr); }
+  readWord(addr) { return Module._sim_read_instr(addr); }
+}
+
+let sim;
+let programLoaded = false;
+let runInterval = null;
+let memViewAddr = 0;
+
+// Inicialización cuando C++ carga
+Module.onRuntimeInitialized = function() {
+  sim = new RV32WasmWrapper();
+  document.getElementById('sbStatus').textContent = "Ready (C++ Engine)";
+  logMsg("Motor C++ WebAssembly cargado.", "ok");
+  buildRegGrid();
+};
+
+function h(v) { return '0x' + (v >>> 0).toString(16).padStart(8, '0'); }
+function logMsg(msg, type='info') {
+  const out = document.getElementById('consoleOut');
+  out.innerHTML += `<div class="log-line log-${type}">${msg}</div>`;
+  out.scrollTop = out.scrollHeight;
+}
+
+// UI Updates
+function buildRegGrid() {
+  let html = `<div class="reg-row pc-row" id="reg-pc"><span class="reg-name">pc</span><span class="reg-alias">pc</span><span class="reg-val nonzero" id="rv-pc">0x00000000</span></div>`;
+  for(let i=0; i<32; i++) {
+    html += `<div class="reg-row" id="reg-${i}"><span class="reg-name">${REG_NAMES[i]}</span><span class="reg-alias">${REG_ALIAS[i]}</span><span class="reg-val" id="rv-${i}">0x00000000</span></div>`;
+  }
+  document.getElementById('regGrid').innerHTML = html;
+}
+
+function updateRegs() {
+  document.getElementById('rv-pc').textContent = h(sim.pc);
+  document.getElementById('sbPC').textContent = h(sim.pc);
+  document.getElementById('sbCycle').textContent = sim.cycle;
+  
+  const currentRegs = sim.regs;
+  for(let i=0; i<32; i++) {
+    const el = document.getElementById(`rv-${i}`);
+    const row = document.getElementById(`reg-${i}`);
+    const v = currentRegs[i] >>> 0;
+    el.textContent = h(v);
+    el.className = 'reg-val' + (v !== 0 ? ' nonzero' : '');
+    
+    if (currentRegs[i] !== sim.prevRegs[i]) {
+      row.classList.add('changed'); el.classList.add('flash');
+      setTimeout(() => { row.classList.remove('changed'); el.classList.remove('flash'); }, 400);
+    }
+  }
+}
+
+// Desensamblador Básico estático para la UI (Mantiene el diseño original)
+function disasmInstr(instr) {
+  if(instr===0) return "nop / eof";
+  if(instr===0x73) return "ecall";
+  const op = instr & 0x7F;
+  const rd = REG_NAMES[(instr >> 7) & 0x1F];
+  const rs1 = REG_NAMES[(instr >> 15) & 0x1F];
+  if(op===0x13) return `addi/op ${rd}, ${rs1}, ...`;
+  if(op===0x33) return `op ${rd}, ${rs1}, ...`;
+  if(op===0x23) return `store ..., (${rs1})`;
+  if(op===0x03) return `load ${rd}, (${rs1})`;
+  if(op===0x63) return `branch ${rs1}, ...`;
+  return `instr 0x${instr.toString(16)}`;
+}
+
+function updateDisasm() {
+  if(!programLoaded) return;
+  const list = document.getElementById('disasmList');
+  list.innerHTML = '';
+  let startAddr = Math.max(0, sim.pc - 24);
+  
+  for(let i=0; i<20; i++) {
+    const addr = startAddr + (i*4);
+    const instr = sim.readWord(addr);
+    const isPC = (addr === sim.pc);
+    if(instr === 0 && i > 10) break;
+    
+    list.innerHTML += `
+      <div class="disasm-row ${isPC?'current':''}" ${isPC?"id='cur-instr'":""}>
+        <span class="disasm-arrow">${isPC?'▶':''}</span>
+        <span class="disasm-addr">${h(addr)}</span>
+        <span class="disasm-hex">${h(instr).replace('0x','')}</span>
+        <span class="disasm-mnem">${disasmInstr(instr)}</span>
+      </div>`;
+  }
+  const cur = document.getElementById('cur-instr');
+  if(cur) cur.scrollIntoView({block:'center', behavior:'smooth'});
+}
+
+function updateMem() {
+  if(!programLoaded) return;
+  const grid = document.getElementById('memGrid');
+  grid.innerHTML = '';
+  let start = memViewAddr & ~15; 
+  
+  for(let i=0; i<20; i++) {
+    const addr = start + i*16;
+    let bytesHtml = '', asciiHtml = '';
+    for(let j=0; j<16; j++) {
+      const b = sim.readByte(addr+j);
+      bytesHtml += `<span class="mem-byte ${b!==0?'nonzero':''}">${b.toString(16).padStart(2,'0')}</span>`;
+      asciiHtml += (b>=32 && b<=126) ? String.fromCharCode(b) : '.';
+    }
+    grid.innerHTML += `<div class="mem-row"><span class="mem-addr">${h(addr)}</span><div class="mem-bytes">${bytesHtml}</div><span class="mem-ascii">${asciiHtml.replace(/</g,'&lt;')}</span></div>`;
+  }
+}
+
+function doStep() {
+  if(!programLoaded || sim.halted) return;
+  sim.step();
+  updateRegs(); updateDisasm(); updateMem();
+  if(sim.halted) {
+    logMsg("CPU Halted (End or Ecall).", "warn");
+    document.getElementById('sbStatus').textContent = "Halted";
+    stopRun();
+  }
+}
+
+function startRun() {
+  if(!programLoaded || sim.halted) return;
+  document.getElementById('btnRun').disabled = true;
+  document.getElementById('btnStep').disabled = true;
+  document.getElementById('btnPause').disabled = false;
+  
+  const speed = parseInt(document.getElementById('speedSelect').value);
+  runInterval = setInterval(() => {
+    doStep();
+    if(sim.halted) stopRun();
+  }, speed);
+}
+
+function stopRun() {
+  clearInterval(runInterval);
+  document.getElementById('btnRun').disabled = false;
+  document.getElementById('btnStep').disabled = false;
+  document.getElementById('btnPause').disabled = true;
+}
+
+// Carga de Archivo
+document.getElementById('fileInput').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = evt => {
+    const bytes = new Uint8Array(evt.target.result);
+    sim.loadBin(bytes);
+    programLoaded = true;
+    document.getElementById('btnStep').disabled = false;
+    document.getElementById('btnRun').disabled = false;
+    logMsg(`Binario cargado: ${file.name}`, 'ok');
+    updateRegs(); updateDisasm(); updateMem();
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+// Eventos
+document.getElementById('btnStep').addEventListener('click', doStep);
+document.getElementById('btnRun').addEventListener('click', startRun);
+document.getElementById('btnPause').addEventListener('click', stopRun);
+document.getElementById('btnMemGo').addEventListener('click', () => {
+  memViewAddr = parseInt(document.getElementById('memAddrInput').value, 16) || 0;
+  updateMem();
+});
+
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', e => {
+    document.querySelectorAll('.tab, .tab-content').forEach(x => x.classList.remove('active'));
+    e.target.classList.add('active');
+    document.getElementById('tab-' + e.target.dataset.tab).classList.add('active');
+  });
+});
+
+// Consola
+document.getElementById('consoleIn').addEventListener('keydown', function(e) {
+  if(e.key === 'Enter') {
+    const cmd = this.value.trim().toLowerCase();
+    this.value = '';
+    logMsg(`> ${cmd}`, 'info');
+    if(cmd === 'step') doStep();
+    else if(cmd === 'run') startRun();
+    else if(cmd === 'pc') logMsg(`PC: ${h(sim.pc)}`, 'ok');
+    else if(cmd.startsWith('mem ')) {
+      memViewAddr = parseInt(cmd.split(' ')[1], 16) || 0;
+      document.querySelector('[data-tab="memory"]').click();
+      updateMem();
+    }
+  }
+});
+</script>
+</body>
+</html>
