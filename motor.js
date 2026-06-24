@@ -1825,6 +1825,7 @@ var _sim_get_cycle = Module['_sim_get_cycle'] = makeInvalidEarlyAccess('_sim_get
 var _sim_get_reg = Module['_sim_get_reg'] = makeInvalidEarlyAccess('_sim_get_reg');
 var _sim_read_mem = Module['_sim_read_mem'] = makeInvalidEarlyAccess('_sim_read_mem');
 var _sim_read_instr = Module['_sim_read_instr'] = makeInvalidEarlyAccess('_sim_read_instr');
+var _sim_load_elf = Module['_sim_load_elf'] = makeInvalidEarlyAccess('_sim_load_elf');
 var _fflush = makeInvalidEarlyAccess('_fflush');
 var _strerror = makeInvalidEarlyAccess('_strerror');
 var _malloc = Module['_malloc'] = makeInvalidEarlyAccess('_malloc');
@@ -1849,6 +1850,7 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports['sim_get_reg'] != 'undefined', 'missing Wasm export: sim_get_reg');
   assert(typeof wasmExports['sim_read_mem'] != 'undefined', 'missing Wasm export: sim_read_mem');
   assert(typeof wasmExports['sim_read_instr'] != 'undefined', 'missing Wasm export: sim_read_instr');
+  assert(typeof wasmExports['sim_load_elf'] != 'undefined', 'missing Wasm export: sim_load_elf');
   assert(typeof wasmExports['fflush'] != 'undefined', 'missing Wasm export: fflush');
   assert(typeof wasmExports['strerror'] != 'undefined', 'missing Wasm export: strerror');
   assert(typeof wasmExports['malloc'] != 'undefined', 'missing Wasm export: malloc');
@@ -1870,6 +1872,7 @@ function assignWasmExports(wasmExports) {
   _sim_get_reg = Module['_sim_get_reg'] = createExportWrapper('sim_get_reg', 1);
   _sim_read_mem = Module['_sim_read_mem'] = createExportWrapper('sim_read_mem', 1);
   _sim_read_instr = Module['_sim_read_instr'] = createExportWrapper('sim_read_instr', 1);
+  _sim_load_elf = Module['_sim_load_elf'] = createExportWrapper('sim_load_elf', 2);
   _fflush = createExportWrapper('fflush', 1);
   _strerror = createExportWrapper('strerror', 1);
   _malloc = Module['_malloc'] = createExportWrapper('malloc', 1);

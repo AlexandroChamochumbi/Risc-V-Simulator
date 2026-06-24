@@ -4,8 +4,38 @@
 #include <emscripten.h>
 
 using namespace std;
+#include <string.h> 
 
-const size_t MEM_SIZE = 1 << 24; // 16 MB
+// Estructura del Header principal del archivo ELF
+struct Elf32_Ehdr {
+    unsigned char e_ident[16]; 
+    uint16_t      e_type;
+    uint16_t      e_machine;
+    uint32_t      e_version;
+    uint32_t      e_entry;     
+    uint32_t      e_phoff;     
+    uint32_t      e_shoff;
+    uint32_t      e_flags;
+    uint16_t      e_ehsize;
+    uint16_t      e_phentsize;
+    uint16_t      e_phnum;    
+    uint16_t      e_shentsize;
+    uint16_t      e_shnum;
+    uint16_t      e_shstrndx;
+};
+
+// Estructura del Program Header (cada segmento a cargar)
+struct Elf32_Phdr {
+    uint32_t p_type;   
+    uint32_t p_offset; // parte del archivo donde estan los datos
+    uint32_t p_vaddr;  // parte de memoria RAM a donde van a ir
+    uint32_t p_paddr;
+    uint32_t p_filesz; // Tamanio de los datos
+    uint32_t p_memsz;
+    uint32_t p_flags;
+    uint32_t p_align;
+};
+const size_t MEM_SIZE = 1 << 24;
 
 class RV32Sim {
 public:
@@ -56,7 +86,7 @@ public:
         if (halted || pc >= MEM_SIZE) { halted = true; return; }
 
         uint32_t instr = readWord(pc);
-        if (instr == 0) { halted = true; return; } // Fin de programa
+        if (instr == 0) { halted = true; return; } 
 
         uint32_t opcode = instr & 0x7F;
         uint32_t rd = (instr >> 7) & 0x1F;
@@ -100,7 +130,7 @@ public:
                     case 0x6: setReg(rd, r1 | immI); break;
                     case 0x7: setReg(rd, r1 & immI); break;
                 } break;
-            case 0x17: setReg(rd, pc + immU); break; // AUIPC
+            case 0x17: setReg(rd, pc + immU); break; 
             case 0x23: // STORE
                 switch (funct3) {
                     case 0x0: writeByte(ur1 + immS, (uint8_t)r2); break;
@@ -212,7 +242,6 @@ public:
 
 RV32Sim sim;
 
-// --- PUENTE WEBASSEMBLY ---
 extern "C" {
     EMSCRIPTEN_KEEPALIVE void sim_reset() { sim.reset(); }
     EMSCRIPTEN_KEEPALIVE void sim_load_bin(uint8_t* buffer, int size) {
@@ -225,4 +254,39 @@ extern "C" {
     EMSCRIPTEN_KEEPALIVE int32_t sim_get_reg(int r) { return sim.getReg(r); }
     EMSCRIPTEN_KEEPALIVE uint8_t sim_read_mem(uint32_t addr) { return sim.readByte(addr); }
     EMSCRIPTEN_KEEPALIVE uint32_t sim_read_instr(uint32_t addr) { return sim.readWord(addr); }
+    EMSCRIPTEN_KEEPALIVE int sim_load_elf(uint8_t* elf_data, int size) {
+        if (size < sizeof(Elf32_Ehdr)) return -1; // Archivo muy pequeño
+        
+        // Limpieza
+        sim.reset();
+        
+        // Leer la cabecera
+        Elf32_Ehdr* ehdr = (Elf32_Ehdr*)elf_data;
+        
+        // Verificar archivo
+        if (ehdr->e_ident[0] != 0x7f || ehdr->e_ident[1] != 'E' || 
+            ehdr->e_ident[2] != 'L' || ehdr->e_ident[3] != 'F') {
+            return -2; // No es un archivo ELF válido
+        }
+        
+        // Recorrer headers
+        uint8_t* phdr_base = elf_data + ehdr->e_phoff;
+        for (int i = 0; i < ehdr->e_phnum; i++) {
+            Elf32_Phdr* phdr = (Elf32_Phdr*)(phdr_base + i * ehdr->e_phentsize);
+            
+            // cargar a RAM si es load
+            if (phdr->p_type == 1) { 
+                // Verificar que no se salga del tamanio de mem size
+                if (phdr->p_vaddr + phdr->p_memsz <= MEM_SIZE) {
+                    // Copiar los datos a sim.mem
+                    memcpy(&sim.mem[phdr->p_vaddr], elf_data + phdr->p_offset, phdr->p_filesz);
+                }
+            }
+        }
+        
+        // ajuste del pc al elf
+        sim.pc = ehdr->e_entry; 
+        
+        return 1; 
+    }
 }

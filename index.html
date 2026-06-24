@@ -96,9 +96,9 @@ header .subtitle { color: var(--text3); font-size: 11px; }
   <h1>RISC-V SIM</h1>
   <span class="subtitle">WASM C++ Engine</span>
   <div class="toolbar">
-    <label class="btn" style="cursor:pointer">
-      <span>📂 Load .bin</span>
-      <input type="file" id="fileInput" accept=".bin" style="display:none">
+    <label class="btn" style="cursor:pointer" title="Cargar archivo .bin o .elf">
+      <span>📂 Load File</span>
+      <input type="file" id="fileInput" accept=".bin,.elf" style="display:none">
     </label>
     <button class="btn green" id="btnStep" disabled>⏭ Step</button>
     <button class="btn accent" id="btnRun" disabled>▶ Run</button>
@@ -125,7 +125,7 @@ header .subtitle { color: var(--text3); font-size: 11px; }
     </div>
     <div class="tab-content active" id="tab-disasm">
       <div class="disasm-list" id="disasmList">
-        <div class="upload-zone"><h3>No program loaded</h3><p>Load a .bin file</p></div>
+        <div class="upload-zone"><h3>No program loaded</h3><p>Load a .bin or .elf file</p></div>
       </div>
     </div>
     <div class="tab-content" id="tab-memory">
@@ -171,12 +171,22 @@ class RV32WasmWrapper {
     this.halted = false; 
     this.prevRegs = new Int32Array(32); 
   }
+  // Cambio: Ahora loadBin acepta archivos crudos O se detecta el ELF antes
   loadBin(bytes) {
     const ptr = Module._malloc(bytes.length);
     Module.HEAPU8.set(bytes, ptr);
     Module._sim_load_bin(ptr, bytes.length);
     Module._free(ptr);
     this.halted = false;
+  }
+  // Cambio: Nueva función para llamar al cargador ELF
+  loadElf(bytes) {
+    const ptr = Module._malloc(bytes.length);
+    Module.HEAPU8.set(bytes, ptr);
+    let result = Module._sim_load_elf(ptr, bytes.length);
+    Module._free(ptr);
+    this.halted = false;
+    return result;
   }
   step() {
     this.prevRegs = this.regs;
@@ -243,7 +253,7 @@ function updateRegs() {
   }
 }
 
-// Desensamblador Básico estático para la UI (Mantiene el diseño original)
+// Desensamblador Básico estático para la UI
 function disasmInstr(instr) {
   if(instr===0) return "nop / eof";
   if(instr===0x73) return "ecall";
@@ -262,7 +272,8 @@ function updateDisasm() {
   if(!programLoaded) return;
   const list = document.getElementById('disasmList');
   list.innerHTML = '';
-  let startAddr = Math.max(0, sim.pc - 24);
+  // Cambio: Ahora usamos sim.pc para centrar la vista y no saltar basura si el ELF empieza más adelante
+  let startAddr = Math.max(0, sim.pc - 24); 
   
   for(let i=0; i<20; i++) {
     const addr = startAddr + (i*4);
@@ -331,18 +342,35 @@ function stopRun() {
   document.getElementById('btnPause').disabled = true;
 }
 
-// Carga de Archivo
 document.getElementById('fileInput').addEventListener('change', e => {
   const file = e.target.files[0];
   if(!file) return;
   const reader = new FileReader();
   reader.onload = evt => {
     const bytes = new Uint8Array(evt.target.result);
-    sim.loadBin(bytes);
+    
+    if (bytes[0] === 0x7F && bytes[1] === 69 && bytes[2] === 76 && bytes[3] === 70) {
+        // Es un archivo ELF
+        let result = sim.loadElf(bytes);
+        if (result === 1) {
+            logMsg(`ELF cargado: ${file.name}. PC en ${h(sim.pc)}`, "ok");
+        } else {
+            logMsg(`Error al leer archivo ELF. Cód: ${result}`, "error");
+            return; // No continuamos si el ELF falló
+        }
+    } else {
+        // Es un binario crudo (.bin) sin cabecera
+        sim.loadBin(bytes);
+        logMsg(`Binario Raw cargado: ${file.name}`, 'ok');
+    }
+
     programLoaded = true;
     document.getElementById('btnStep').disabled = false;
     document.getElementById('btnRun').disabled = false;
-    logMsg(`Binario cargado: ${file.name}`, 'ok');
+    
+    // Apuntamos la vista de memoria al PC para que el usuario vea el código
+    memViewAddr = sim.pc;
+    
     updateRegs(); updateDisasm(); updateMem();
   };
   reader.readAsArrayBuffer(file);
@@ -352,6 +380,11 @@ document.getElementById('fileInput').addEventListener('change', e => {
 document.getElementById('btnStep').addEventListener('click', doStep);
 document.getElementById('btnRun').addEventListener('click', startRun);
 document.getElementById('btnPause').addEventListener('click', stopRun);
+document.getElementById('btnReset').addEventListener('click', () => {
+    sim.reset();
+    logMsg("Simulador reiniciado.", "info");
+    updateRegs(); updateDisasm(); updateMem();
+});
 document.getElementById('btnMemGo').addEventListener('click', () => {
   memViewAddr = parseInt(document.getElementById('memAddrInput').value, 16) || 0;
   updateMem();
