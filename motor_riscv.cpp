@@ -1,10 +1,31 @@
 #include <vector>
 #include <cstdint>
 #include <algorithm>
+#include <string.h>
+#include <iostream>
+#include <iomanip>
+#include <sstream>
+
+#ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#else
+// Librerías de Redes para compilación nativa (GDB)
+#ifdef _WIN32
+    #include <winsock2.h>
+    #pragma comment(lib, "ws2_32.lib")
+    typedef int socklen_t;
+#else
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <unistd.h>
+    #define SOCKET int
+    #define INVALID_SOCKET -1
+    #define SOCKET_ERROR -1
+    #define closesocket close
+#endif
+#endif
 
 using namespace std;
-#include <string.h> 
 
 // Estructura del Header principal del archivo ELF
 struct Elf32_Ehdr {
@@ -27,14 +48,15 @@ struct Elf32_Ehdr {
 // Estructura del Program Header (cada segmento a cargar)
 struct Elf32_Phdr {
     uint32_t p_type;   
-    uint32_t p_offset; // parte del archivo donde estan los datos
-    uint32_t p_vaddr;  // parte de memoria RAM a donde van a ir
+    uint32_t p_offset; 
+    uint32_t p_vaddr;  
     uint32_t p_paddr;
-    uint32_t p_filesz; // Tamanio de los datos
+    uint32_t p_filesz; 
     uint32_t p_memsz;
     uint32_t p_flags;
     uint32_t p_align;
 };
+
 const size_t MEM_SIZE = 1 << 24;
 
 class RV32Sim {
@@ -111,7 +133,7 @@ public:
         uint32_t ur2 = (uint32_t)r2;
 
         switch (opcode) {
-            case 0x03: // LOAD
+            case 0x03: 
                 switch (funct3) {
                     case 0x0: setReg(rd, (int32_t)(int8_t)readByte(ur1 + immI)); break;
                     case 0x1: setReg(rd, (int32_t)(int16_t)readHalf(ur1 + immI)); break;
@@ -119,7 +141,7 @@ public:
                     case 0x4: setReg(rd, readByte(ur1 + immI)); break;
                     case 0x5: setReg(rd, readHalf(ur1 + immI)); break;
                 } break;
-            case 0x13: // OP-IMM
+            case 0x13: 
                 switch (funct3) {
                     case 0x0: setReg(rd, r1 + immI); break;
                     case 0x1: setReg(rd, r1 << rs2); break;
@@ -131,13 +153,13 @@ public:
                     case 0x7: setReg(rd, r1 & immI); break;
                 } break;
             case 0x17: setReg(rd, pc + immU); break; 
-            case 0x23: // STORE
+            case 0x23: 
                 switch (funct3) {
                     case 0x0: writeByte(ur1 + immS, (uint8_t)r2); break;
                     case 0x1: writeHalf(ur1 + immS, (uint16_t)r2); break;
                     case 0x2: writeWord(ur1 + immS, (uint32_t)r2); break;
                 } break;
-            case 0x33: // OP
+            case 0x33: 
                 switch ((funct7 << 3) | funct3) {
                     case 0x000: setReg(rd, r1 + r2); break;
                     case 0x100: setReg(rd, r1 - r2); break;
@@ -150,8 +172,8 @@ public:
                     case 0x006: setReg(rd, r1 | r2); break;
                     case 0x007: setReg(rd, r1 & r2); break;
                 } break;
-            case 0x37: setReg(rd, immU); break; // LUI
-            case 0x63: // BRANCH
+            case 0x37: setReg(rd, immU); break; 
+            case 0x63: 
                 switch (funct3) {
                     case 0x0: if (r1 == r2) nextPC = pc + immB; break;
                     case 0x1: if (r1 != r2) nextPC = pc + immB; break;
@@ -160,78 +182,55 @@ public:
                     case 0x6: if (ur1 < ur2) nextPC = pc + immB; break;
                     case 0x7: if (ur1 >= ur2) nextPC = pc + immB; break;
                 } break;
-            case 0x67: setReg(rd, pc + 4); nextPC = (ur1 + immI) & ~1; break; // JALR
-            case 0x6F: setReg(rd, pc + 4); nextPC = pc + immJ; break; // JAL
-           case 0x73: // SYSTEM (ecall / ebreak)
+            case 0x67: setReg(rd, pc + 4); nextPC = (ur1 + immI) & ~1; break; 
+            case 0x6F: setReg(rd, pc + 4); nextPC = pc + immJ; break; 
+            case 0x73: 
                 if (instr == 0x00000073) { // ecall
-                    int32_t a7 = getReg(17); // x17
-                    int32_t a0 = getReg(10); // x10
+                    int32_t a7 = getReg(17); 
+                    int32_t a0 = getReg(10); 
                     
-                    if (a7 == 1) { // Imprimir Entero
-                        EM_ASM({ logMsg("[ecall 1] Imprime: " + $0, 'ok'); }, a0);
+                    if (a7 == 1) { 
+                        #ifdef __EMSCRIPTEN__
+                            EM_ASM({ logMsg("[ecall 1] Imprime: " + $0, 'ok'); }, a0);
+                        #else
+                            cout << "[ecall 1] Imprime: " << a0 << endl;
+                        #endif
                     } 
-                    else if (a7 == 4) { // Imprimir Cadena (String)
-                        // Pasamos la dirección (a0) a JS y leemos la memoria del simulador
-                        EM_ASM({
-                            let str = '';
-                            let addr = $0 >>> 0;
-                            while (true) {
-                                let c = Module._sim_read_mem(addr++);
-                                if (c === 0 || str.length > 256) break; // Terminador nulo o límite
-                                str += String.fromCharCode(c);
-                            }
-                            logMsg("[ecall 4] " + str, 'ok');
-                        }, a0);
-                    }
-                    else if (a7 == 11) { // Imprimir Carácter
-                        EM_ASM({ logMsg("[ecall 11] Carácter: '" + String.fromCharCode($0) + "'", 'ok'); }, a0);
-                    } 
-                    else if (a7 == 10) { // Salida limpia (Exit)
+                    else if (a7 == 10) { 
                         halted = true;
-                        EM_ASM({ logMsg("[ecall 10] Fin del programa (Exit)", 'warn'); });
+                        #ifdef __EMSCRIPTEN__
+                            EM_ASM({ logMsg("[ecall 10] Fin del programa (Exit)", 'warn'); });
+                        #else
+                            cout << "[ecall 10] Fin del programa (Exit)" << endl;
+                        #endif
                     } 
-                    else if (a7 == 5) { // ecall 5: Leer Entero (Read Integer)
-                        // JS pide el número y se lo devuelve a C++ a través de EM_ASM_INT
-                        int32_t val = EM_ASM_INT({
-                            let input = prompt("El programa solicita un número entero:", "0");
-                            return parseInt(input) || 0; // Si escribe letras, devuelve 0
-                        });
-                        setReg(10, val); // Guardar el resultado en a0
-                        EM_ASM({ logMsg("[ecall 5] Ingresó el número: " + $0, 'ok'); }, val);
-                    }
-                    else if (a7 == 12) { // ecall 12: Leer Carácter (Read Char)
-                        int32_t val = EM_ASM_INT({
-                            let input = prompt("El programa solicita un carácter:", "");
-                            return (input && input.length > 0) ? input.charCodeAt(0) : 0;
-                        });
-                        setReg(10, val); // Guardar el código ASCII en a0
-                        EM_ASM({ logMsg("[ecall 12] Ingresó el carácter: '" + String.fromCharCode($0) + "'", 'ok'); }, val);
-                    }
-                    else if (a7 == 8) { // ecall 8: Leer Cadena (Read String)
-                        // Para cadenas, a0 tiene la dirección de memoria y a1 el tamaño máximo
-                        int32_t maxLen = getReg(11); // a1 (x11)
-                        EM_ASM({
-                            let input = prompt("El programa solicita un texto (máx " + $1 + " caracteres):", "");
-                            if (!input) input = "";
-                            let addr = $0 >>> 0;
-                            let maxLen = $1;
-                            let i = 0;
-                            
-                            // Escribimos el texto directo en la memoria del simulador (HEAPU8)
-                            for (; i < input.length && i < maxLen - 1; i++) {
-                                HEAPU8[addr + i] = input.charCodeAt(i);
-                            }
-                            HEAPU8[addr + i] = 0; // Terminador nulo obligatorio
-                            
-                            logMsg("[ecall 8] Ingresó el texto: " + input, 'ok');
-                        }, a0, maxLen);
+                    else if (a7 == 5) {
+                        #ifdef __EMSCRIPTEN__
+                            int32_t val = EM_ASM_INT({
+                                let input = prompt("El programa solicita un número entero:", "0");
+                                return parseInt(input) || 0;
+                            });
+                        #else
+                            int32_t val;
+                            cout << "El programa solicita un número entero: ";
+                            cin >> val;
+                        #endif
+                        setReg(10, val);
                     }
                     else {
-                        EM_ASM({ logMsg("[ecall] Syscall no implementado: " + $0, 'err'); }, a7);
+                        #ifdef __EMSCRIPTEN__
+                            EM_ASM({ logMsg("[ecall] Syscall no implementado: " + $0, 'err'); }, a7);
+                        #else
+                            cout << "[ecall] Syscall no implementado: " << a7 << endl;
+                        #endif
                     }
                 } else if (instr == 0x00100073) { // ebreak
                     halted = true;
-                    EM_ASM({ logMsg("Pausa por ebreak", 'warn'); });
+                    #ifdef __EMSCRIPTEN__
+                        EM_ASM({ logMsg("Pausa por ebreak", 'warn'); });
+                    #else
+                        cout << "Pausa por ebreak" << endl;
+                    #endif
                 }
                 break;
         }
@@ -242,6 +241,10 @@ public:
 
 RV32Sim sim;
 
+// ========================================================================
+// 1. INTERFAZ WEB (SE COMPILA SÓLO CON EMSCRIPTEN)
+// ========================================================================
+#ifdef __EMSCRIPTEN__
 extern "C" {
     EMSCRIPTEN_KEEPALIVE void sim_reset() { sim.reset(); }
     EMSCRIPTEN_KEEPALIVE void sim_load_bin(uint8_t* buffer, int size) {
@@ -255,38 +258,126 @@ extern "C" {
     EMSCRIPTEN_KEEPALIVE uint8_t sim_read_mem(uint32_t addr) { return sim.readByte(addr); }
     EMSCRIPTEN_KEEPALIVE uint32_t sim_read_instr(uint32_t addr) { return sim.readWord(addr); }
     EMSCRIPTEN_KEEPALIVE int sim_load_elf(uint8_t* elf_data, int size) {
-        if (size < sizeof(Elf32_Ehdr)) return -1; // Archivo muy pequeño
-        
-        // Limpieza
+        if (size < sizeof(Elf32_Ehdr)) return -1;
         sim.reset();
-        
-        // Leer la cabecera
         Elf32_Ehdr* ehdr = (Elf32_Ehdr*)elf_data;
-        
-        // Verificar archivo
         if (ehdr->e_ident[0] != 0x7f || ehdr->e_ident[1] != 'E' || 
             ehdr->e_ident[2] != 'L' || ehdr->e_ident[3] != 'F') {
-            return -2; // No es un archivo ELF válido
+            return -2;
         }
-        
-        // Recorrer headers
         uint8_t* phdr_base = elf_data + ehdr->e_phoff;
         for (int i = 0; i < ehdr->e_phnum; i++) {
             Elf32_Phdr* phdr = (Elf32_Phdr*)(phdr_base + i * ehdr->e_phentsize);
-            
-            // cargar a RAM si es load
             if (phdr->p_type == 1) { 
-                // Verificar que no se salga del tamanio de mem size
                 if (phdr->p_vaddr + phdr->p_memsz <= MEM_SIZE) {
-                    // Copiar los datos a sim.mem
                     memcpy(&sim.mem[phdr->p_vaddr], elf_data + phdr->p_offset, phdr->p_filesz);
                 }
             }
         }
-        
-        // ajuste del pc al elf
         sim.pc = ehdr->e_entry; 
-        
         return 1; 
     }
 }
+
+//SOPORTE GDC 
+#else
+
+// Función auxiliar para crear un paquete Remote Serial Protocol
+string make_gdb_packet(const string& data) {
+    uint8_t csum = 0;
+    for (char c : data) csum += c;
+    stringstream ss;
+    ss << "$" << data << "#" << hex << setfill('0') << setw(2) << (int)csum;
+    return ss.str();
+}
+
+// Función auxiliar para leer todos los registros para GDB
+string get_gdb_registers() {
+    stringstream ss;
+    for(int i = 0; i < 32; i++) {
+        uint32_t v = sim.regs[i];
+        ss << hex << setfill('0') << setw(2) << (v & 0xff)
+           << setw(2) << ((v>>8)&0xff) << setw(2) << ((v>>16)&0xff) << setw(2) << ((v>>24)&0xff);
+    }
+    uint32_t v = sim.pc;
+    ss << hex << setfill('0') << setw(2) << (v & 0xff)
+       << setw(2) << ((v>>8)&0xff) << setw(2) << ((v>>16)&0xff) << setw(2) << ((v>>24)&0xff);
+    return ss.str();
+}
+
+int main(int argc, char* argv[]) {
+    cout << "=== RISC-V Native Simulator / GDB Server ===" << endl;
+
+    // 1. Inicializar Sockets (Compatible con Windows y Linux)
+    #ifdef _WIN32
+        WSADATA wsa;
+        WSAStartup(MAKEWORD(2, 2), &wsa);
+    #endif
+
+    SOCKET server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in address;
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(1234);
+
+    // 2. Levantar servidor en el puerto 1234
+    bind(server_fd, (struct sockaddr*)&address, sizeof(address));
+    listen(server_fd, 1);
+    cout << "Esperando conexion GDB en localhost:1234..." << endl;
+
+    socklen_t addrlen = sizeof(address);
+    SOCKET client_socket = accept(server_fd, (struct sockaddr*)&address, &addrlen);
+    cout << "GDB Conectado. Iniciando depuracion." << endl;
+
+    // 3. Bucle infinito recibiendo comandos RSP
+    char buffer[1024];
+    while (true) {
+        int valread = recv(client_socket, buffer, 1024, 0);
+        if (valread <= 0) break;
+        
+        // Responder con ACK (Todo paquete recibido se acepta con un +)
+        send(client_socket, "+", 1, 0);
+
+        string cmd(buffer, valread);
+        
+        // Interpretar comandos que vienen dentro de $...#
+        if (cmd.find("$g#") != string::npos) {
+            // 'g': Leer todos los registros
+            string response = make_gdb_packet(get_gdb_registers());
+            send(client_socket, response.c_str(), response.length(), 0);
+        }
+        else if (cmd.find("$c#") != string::npos) {
+            // 'c': Continuar ejecución
+            while (!sim.halted) sim.step();
+            string response = make_gdb_packet("S05"); // Enviar Señal Trap
+            send(client_socket, response.c_str(), response.length(), 0);
+        }
+        else if (cmd.find("$s#") != string::npos) {
+            // 's': Step (Un solo paso)
+            sim.step();
+            string response = make_gdb_packet("S05");
+            send(client_socket, response.c_str(), response.length(), 0);
+        }
+        else if (cmd.find("$?#") != string::npos) {
+            // '?': Razón de parada
+            string response = make_gdb_packet("S05");
+            send(client_socket, response.c_str(), response.length(), 0);
+        }
+        else if (cmd[0] == '$') {
+            // Comando no soportado, devolver paquete vacío para que GDB sepa
+            string response = make_gdb_packet("");
+            send(client_socket, response.c_str(), response.length(), 0);
+        }
+    }
+
+    cout << "Conexion cerrada." << endl;
+    closesocket(client_socket);
+    closesocket(server_fd);
+    
+    #ifdef _WIN32
+        WSACleanup();
+    #endif
+
+    return 0;
+}
+#endif

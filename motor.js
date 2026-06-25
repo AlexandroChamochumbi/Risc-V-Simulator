@@ -1803,17 +1803,11 @@ function checkIncomingModuleAPI() {
   ignoredModuleProp('onSbrkGrow');
 }
 var ASM_CONSTS = {
-  69188: ($0) => { logMsg("[ecall 1] Imprime: " + $0, 'ok'); },  
- 69234: ($0) => { let str = ''; let addr = $0 >>> 0; while (true) { let c = Module._sim_read_mem(addr++); if (c === 0 || str.length > 256) break; str += String.fromCharCode(c); } logMsg("[ecall 4] " + str, 'ok'); },  
- 69433: ($0) => { logMsg("[ecall 11] Carácter: '" + String.fromCharCode($0) + "'", 'ok'); },  
- 69510: () => { logMsg("[ecall 10] Fin del programa (Exit)", 'warn'); },  
- 69568: () => { let input = prompt("El programa solicita un número entero:", "0"); return parseInt(input) || 0; },  
- 69669: ($0) => { logMsg("[ecall 5] Ingresó el número: " + $0, 'ok'); },  
- 69727: () => { let input = prompt("El programa solicita un carácter:", ""); return (input && input.length > 0) ? input.charCodeAt(0) : 0; },  
- 69855: ($0) => { logMsg("[ecall 12] Ingresó el carácter: '" + String.fromCharCode($0) + "'", 'ok'); },  
- 69944: ($0, $1) => { let input = prompt("El programa solicita un texto (máx " + $1 + " caracteres):", ""); if (!input) input = ""; let addr = $0 >>> 0; let maxLen = $1; let i = 0; for (; i < input.length && i < maxLen - 1; i++) { HEAPU8[addr + i] = input.charCodeAt(i); } HEAPU8[addr + i] = 0; logMsg("[ecall 8] Ingresó el texto: " + input, 'ok'); },  
- 70277: ($0) => { logMsg("[ecall] Syscall no implementado: " + $0, 'err'); },  
- 70338: () => { logMsg("Pausa por ebreak", 'warn'); }
+  69172: ($0) => { logMsg("[ecall 1] Imprime: " + $0, 'ok'); },  
+ 69218: () => { logMsg("[ecall 10] Fin del programa (Exit)", 'warn'); },  
+ 69276: () => { let input = prompt("El programa solicita un número entero:", "0"); return parseInt(input) || 0; },  
+ 69377: ($0) => { logMsg("[ecall] Syscall no implementado: " + $0, 'err'); },  
+ 69438: () => { logMsg("Pausa por ebreak", 'warn'); }
 };
 
 // Imports from the Wasm binary.
