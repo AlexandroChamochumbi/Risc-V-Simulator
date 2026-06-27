@@ -204,6 +204,40 @@ public:
                             cout << "[ecall 10] Fin del programa (Exit)" << endl;
                         #endif
                     } 
+                    else if (a7 == 11) { // Print Character
+                        char c = (char)a0; // Convertimos el número de a0 a su símbolo ASCII
+                        
+                        #ifdef __EMSCRIPTEN__
+                            // En JavaScript convertimos el número a letra con String.fromCharCode
+                            EM_ASM({ 
+                                logMsg("[ecall 11] Imprime: " + String.fromCharCode($0), 'ok'); 
+                            }, a0);
+                        #else
+                            cout << "[ecall 11] Imprime: " << c << endl;
+                        #endif
+                    }
+                    else if (a7 == 4) { // Print String
+                        string output = "";
+                        uint32_t addr = a0; // a0 contiene la dirección inicial del texto en RAM
+                        char c = readByte(addr);
+
+                        // Leer memoria letra por letra hasta encontrar el byte nulo (0x00)
+                        while (c != '\0' && output.length() < 1000) { // Límite de 1000 por seguridad
+                            output += c;
+                            addr++;
+                            c = readByte(addr);
+                        }
+                        
+                       
+                        #ifdef __EMSCRIPTEN__
+                            EM_ASM({ 
+                                logMsg("[ecall 4] Imprime: " + UTF8ToString($0), 'ok'); 
+                            }, output.c_str());
+                        #else
+                            cout << "[ecall 4] Imprime: " << output << endl;
+                        #endif
+                        // --------------------------------------------------
+                    }
                     else if (a7 == 5) {
                         #ifdef __EMSCRIPTEN__
                             int32_t val = EM_ASM_INT({
@@ -217,6 +251,7 @@ public:
                         #endif
                         setReg(10, val);
                     }
+                    
                     else {
                         #ifdef __EMSCRIPTEN__
                             EM_ASM({ logMsg("[ecall] Syscall no implementado: " + $0, 'err'); }, a7);

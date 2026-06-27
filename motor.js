@@ -1803,11 +1803,13 @@ function checkIncomingModuleAPI() {
   ignoredModuleProp('onSbrkGrow');
 }
 var ASM_CONSTS = {
-  69172: ($0) => { logMsg("[ecall 1] Imprime: " + $0, 'ok'); },  
- 69218: () => { logMsg("[ecall 10] Fin del programa (Exit)", 'warn'); },  
- 69276: () => { let input = prompt("El programa solicita un número entero:", "0"); return parseInt(input) || 0; },  
- 69377: ($0) => { logMsg("[ecall] Syscall no implementado: " + $0, 'err'); },  
- 69438: () => { logMsg("Pausa por ebreak", 'warn'); }
+  69252: ($0) => { logMsg("[ecall 1] Imprime: " + $0, 'ok'); },  
+ 69298: () => { logMsg("[ecall 10] Fin del programa (Exit)", 'warn'); },  
+ 69356: ($0) => { logMsg("[ecall 11] Imprime: " + String.fromCharCode($0), 'ok'); },  
+ 69424: ($0) => { logMsg("[ecall 4] Imprime: " + UTF8ToString($0), 'ok'); },  
+ 69484: () => { let input = prompt("El programa solicita un número entero:", "0"); return parseInt(input) || 0; },  
+ 69585: ($0) => { logMsg("[ecall] Syscall no implementado: " + $0, 'err'); },  
+ 69646: () => { logMsg("Pausa por ebreak", 'warn'); }
 };
 
 // Imports from the Wasm binary.
